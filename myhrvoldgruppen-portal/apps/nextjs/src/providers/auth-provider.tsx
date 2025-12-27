@@ -11,6 +11,7 @@ interface User {
 interface AuthContextType {
   user: User | null;
   isLoading: boolean;
+  isAuthenticated: boolean;
   signOut: () => void;
 }
 
@@ -43,8 +44,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     window.location.href = "/__replauthLogout";
   };
 
+  const isAuthenticated = !!user;
+
   return (
-    <AuthContext.Provider value={{ user, isLoading, signOut }}>
+    <AuthContext.Provider value={{ user, isLoading, isAuthenticated, signOut }}>
       {children}
     </AuthContext.Provider>
   );

@@ -15,13 +15,13 @@ import {
 import { useAuth } from "../../src/providers/auth-provider";
 
 export default function ProfileScreen() {
-  const { user, logout } = useAuth();
+  const { user, signOut } = useAuth();
   const [notifications, setNotifications] = useState(true);
   const [offlineMode, setOfflineMode] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
 
   const handleLogout = async () => {
-    await logout();
+    await signOut();
     router.replace("/");
   };
 

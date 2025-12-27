@@ -1,8 +1,46 @@
 @import "tailwindcss";
 
+/* Myhrvoldgruppen Branding */
 :root {
-  --primary-teal: #0d9488;
-  --primary-teal-dark: #0f766e;
-  --accent-orange: #f97316;
-  --accent-orange-dark: #ea580c;
+  --color-primary: #0d9488;
+  --color-primary-dark: #0f766e;
+  --color-secondary: #f97316;
+  --color-background: #f3f4f6;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #a1a1a1;
+}
+
+/* Focus styles */
+*:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* Smooth scrolling */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Print styles */
+@media print {
+  .no-print {
+    display: none !important;
+  }
 }

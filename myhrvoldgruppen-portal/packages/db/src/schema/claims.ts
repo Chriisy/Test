@@ -40,6 +40,8 @@ export const claims = pgTable(`${prefix}claims`, {
 
   // Identifikasjon
   claimNumber: text("claim_number").notNull().unique(),
+  title: text("title").notNull(),
+  description: text("description"),
 
   // Relasjoner
   customerId: uuid("customer_id").references(() => customers.id),
@@ -65,7 +67,7 @@ export const claims = pgTable(`${prefix}claims`, {
 
   // Produktinfo (denormalisert)
   productCode: text("product_code"),
-  productNameText: text("product_name_text"),
+  productName: text("product_name"),
   serialNumber: text("serial_number"),
   batchNumber: text("batch_number"),
   referenceNumber: text("reference_number"),
