@@ -176,7 +176,13 @@
 │   └── NativeWind v4
 │
 ├── Auth
-│   └── Clerk
+│   └── Supabase Auth (web + mobil)
+│
+├── Tilleggstjenester
+│   ├── Sentry (feilhåndtering)
+│   ├── Resend (e-post)
+│   ├── @react-pdf/renderer (PDF-generering)
+│   └── Supabase Storage (bilder, filer)
 │
 └── Monorepo
     ├── Turborepo

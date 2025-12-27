@@ -1,272 +1,485 @@
-# Fase 11: Auth-oppsett (Clerk)
+# Fase 11: Auth-oppsett (Supabase Auth)
 
-**Kategori:** 🔐 AUTENTISERING  
-**Tid:** 4-5 timer  
-**Prioritet:** 🔴 Kritisk  
-**Avhengigheter:** Fase 2 fullført
-
----
-
-## 🎯 Mål
-Sette opp Clerk autentisering for web-portalen med norsk lokalisering og beskyttede ruter.
+**Kategori:** AUTENTISERING
+**Tid:** 4-5 timer
+**Prioritet:** Kritisk
+**Avhengigheter:** Fase 3 fullført (Supabase-oppsett)
 
 ---
 
-## 📋 Sjekkliste
+## Mål
+Sette opp Supabase Auth for web-portalen med e-post/passord, beskyttede ruter og rollebasert tilgang.
 
-### 11.1 Opprett Clerk-konto
-- [ ] Gå til https://clerk.com/
-- [ ] Registrer deg (gratis tier)
-- [ ] Opprett ny applikasjon: "Myhrvoldgruppen Portal"
+---
 
-### 11.2 Konfigurer Clerk Dashboard
-- [ ] Aktiver Email + Password
-- [ ] Aktiver Google OAuth (valgfritt)
-- [ ] Sett opp norsk lokalisering
-- [ ] Kopier API-nøkler
+## Hvorfor Supabase Auth?
 
-### 11.3 Installer Clerk
+| Fordel | Beskrivelse |
+|--------|-------------|
+| Allerede inkludert | Du bruker allerede Supabase for database |
+| Gratis | Inkludert i Supabase-planen |
+| RLS-integrasjon | Row Level Security fungerer automatisk |
+| Enkel oppsett | Samme SDK for web og mobil |
+
+---
+
+## Sjekkliste
+
+### 11.1 Aktiver Auth i Supabase
+- [ ] Gå til Supabase Dashboard -> Authentication
+- [ ] Enable Email provider
+- [ ] (Valgfritt) Enable Google OAuth
+- [ ] Sett "Site URL" til `http://localhost:3000`
+- [ ] Legg til redirect URLs
+
+### 11.2 Installer pakker
 ```bash
-pnpm add @clerk/nextjs --filter @myhrvold/nextjs
+pnpm add @supabase/supabase-js @supabase/ssr --filter @myhrvold/nextjs
 ```
 
-### 11.4 Konfigurer miljøvariabler
+### 11.3 Miljøvariabler
 ```bash
 # .env
-NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_...
-CLERK_SECRET_KEY=sk_test_...
+NEXT_PUBLIC_SUPABASE_URL=https://xxx.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbG...
 ```
 
 ---
 
-## 📄 Clerk-oppsett
+## Supabase Client Setup
 
-### 1. Middleware
+### 1. Browser Client
+
+```typescript
+// packages/db/src/supabase/client.ts
+import { createBrowserClient } from '@supabase/ssr'
+
+export function createClient() {
+  return createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  )
+}
+```
+
+### 2. Server Client
+
+```typescript
+// packages/db/src/supabase/server.ts
+import { createServerClient, type CookieOptions } from '@supabase/ssr'
+import { cookies } from 'next/headers'
+
+export async function createClient() {
+  const cookieStore = await cookies()
+
+  return createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return cookieStore.getAll()
+        },
+        setAll(cookiesToSet) {
+          try {
+            cookiesToSet.forEach(({ name, value, options }) =>
+              cookieStore.set(name, value, options)
+            )
+          } catch {
+            // Server Component - ignore
+          }
+        },
+      },
+    }
+  )
+}
+```
+
+### 3. Middleware
 
 ```typescript
 // apps/nextjs/src/middleware.ts
-import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server'
+import { createServerClient } from '@supabase/ssr'
+import { NextResponse, type NextRequest } from 'next/server'
 
-const isPublicRoute = createRouteMatcher([
-  '/sign-in(.*)',
-  '/sign-up(.*)',
-  '/api/webhook(.*)',
-])
+export async function middleware(request: NextRequest) {
+  let supabaseResponse = NextResponse.next({ request })
 
-export default clerkMiddleware((auth, request) => {
-  if (!isPublicRoute(request)) {
-    auth().protect()
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return request.cookies.getAll()
+        },
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value }) =>
+            request.cookies.set(name, value)
+          )
+          supabaseResponse = NextResponse.next({ request })
+          cookiesToSet.forEach(({ name, value, options }) =>
+            supabaseResponse.cookies.set(name, value, options)
+          )
+        },
+      },
+    }
+  )
+
+  const { data: { user } } = await supabase.auth.getUser()
+
+  // Offentlige ruter
+  const publicRoutes = ['/sign-in', '/sign-up', '/auth/callback']
+  const isPublicRoute = publicRoutes.some(route =>
+    request.nextUrl.pathname.startsWith(route)
+  )
+
+  if (!user && !isPublicRoute) {
+    const url = request.nextUrl.clone()
+    url.pathname = '/sign-in'
+    return NextResponse.redirect(url)
   }
-})
+
+  return supabaseResponse
+}
 
 export const config = {
-  matcher: ['/((?!.*\\..*|_next).*)', '/', '/(api|trpc)(.*)'],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\\..*).*)'],
 }
 ```
 
-### 2. Layout-provider
+---
+
+## Auth-sider
+
+### 1. Sign-in side
 
 ```typescript
-// apps/nextjs/src/app/layout.tsx
-import { ClerkProvider } from '@clerk/nextjs'
-import { nbNO } from '@clerk/localizations'
-
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode
-}) {
-  return (
-    <ClerkProvider localization={nbNO}>
-      <html lang="no">
-        <body>{children}</body>
-      </html>
-    </ClerkProvider>
-  )
-}
-```
-
-### 3. Sign-in side
-
-```typescript
-// apps/nextjs/src/app/sign-in/[[...sign-in]]/page.tsx
-import { SignIn } from '@clerk/nextjs'
+// apps/nextjs/src/app/sign-in/page.tsx
+'use client'
+import { useState } from 'react'
+import { createClient } from '@myhrvold/db/supabase/client'
+import { useRouter } from 'next/navigation'
+import { Button } from '@myhrvold/ui/button'
+import { Input } from '@myhrvold/ui/input'
 
 export default function SignInPage() {
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+  const router = useRouter()
+  const supabase = createClient()
+
+  const handleSignIn = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setLoading(true)
+    setError(null)
+
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    })
+
+    if (error) {
+      setError(error.message)
+      setLoading(false)
+    } else {
+      router.push('/')
+      router.refresh()
+    }
+  }
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-gray-50">
-      <SignIn 
-        appearance={{
-          elements: {
-            rootBox: "mx-auto",
-            card: "bg-white shadow-lg",
-            headerTitle: "text-gray-900",
-            headerSubtitle: "text-gray-600",
-            formButtonPrimary: "bg-teal-600 hover:bg-teal-700",
-          }
-        }}
-      />
+      <div className="w-full max-w-md bg-white rounded-xl shadow-lg p-8">
+        <div className="text-center mb-8">
+          <h1 className="text-2xl font-bold text-gray-900">Myhrvoldgruppen</h1>
+          <p className="text-gray-600 mt-2">Logg inn på portalen</p>
+        </div>
+
+        <form onSubmit={handleSignIn} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              E-post
+            </label>
+            <Input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="din@epost.no"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Passord
+            </label>
+            <Input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="********"
+              required
+            />
+          </div>
+
+          {error && (
+            <p className="text-red-600 text-sm">{error}</p>
+          )}
+
+          <Button type="submit" className="w-full" disabled={loading}>
+            {loading ? 'Logger inn...' : 'Logg inn'}
+          </Button>
+        </form>
+
+        <p className="text-center text-sm text-gray-600 mt-6">
+          Har du ikke konto?{' '}
+          <a href="/sign-up" className="text-teal-600 hover:underline">
+            Registrer deg
+          </a>
+        </p>
+      </div>
     </div>
   )
 }
 ```
 
-### 4. Sign-up side
+### 2. Sign-up side
 
 ```typescript
-// apps/nextjs/src/app/sign-up/[[...sign-up]]/page.tsx
-import { SignUp } from '@clerk/nextjs'
+// apps/nextjs/src/app/sign-up/page.tsx
+'use client'
+import { useState } from 'react'
+import { createClient } from '@myhrvold/db/supabase/client'
+import { Button } from '@myhrvold/ui/button'
+import { Input } from '@myhrvold/ui/input'
 
 export default function SignUpPage() {
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [firstName, setFirstName] = useState('')
+  const [lastName, setLastName] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState(false)
+  const supabase = createClient()
+
+  const handleSignUp = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError(null)
+
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          first_name: firstName,
+          last_name: lastName,
+        },
+      },
+    })
+
+    if (error) {
+      setError(error.message)
+    } else {
+      setSuccess(true)
+    }
+  }
+
+  if (success) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-gray-50">
+        <div className="bg-white rounded-xl shadow-lg p-8 max-w-md text-center">
+          <h2 className="text-xl font-bold text-green-600 mb-2">Sjekk e-posten din!</h2>
+          <p className="text-gray-600">
+            Vi har sendt deg en bekreftelseslink. Klikk på den for å aktivere kontoen.
+          </p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-gray-50">
-      <SignUp 
-        appearance={{
-          elements: {
-            formButtonPrimary: "bg-teal-600 hover:bg-teal-700",
-          }
-        }}
-      />
+      <div className="w-full max-w-md bg-white rounded-xl shadow-lg p-8">
+        <h1 className="text-2xl font-bold text-center mb-8">Registrer deg</h1>
+
+        <form onSubmit={handleSignUp} className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium mb-1">Fornavn</label>
+              <Input
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Etternavn</label>
+              <Input
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
+                required
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1">E-post</label>
+            <Input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1">Passord</label>
+            <Input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              minLength={8}
+              required
+            />
+          </div>
+
+          {error && <p className="text-red-600 text-sm">{error}</p>}
+
+          <Button type="submit" className="w-full">
+            Registrer deg
+          </Button>
+        </form>
+      </div>
     </div>
   )
 }
 ```
 
-### 5. User-button i header
+### 3. Auth Callback
 
 ```typescript
-// apps/nextjs/src/components/header.tsx
-import { UserButton } from '@clerk/nextjs'
+// apps/nextjs/src/app/auth/callback/route.ts
+import { createClient } from '@myhrvold/db/supabase/server'
+import { NextResponse } from 'next/server'
 
-export function Header() {
+export async function GET(request: Request) {
+  const { searchParams, origin } = new URL(request.url)
+  const code = searchParams.get('code')
+  const next = searchParams.get('next') ?? '/'
+
+  if (code) {
+    const supabase = await createClient()
+    const { error } = await supabase.auth.exchangeCodeForSession(code)
+    if (!error) {
+      return NextResponse.redirect(`${origin}${next}`)
+    }
+  }
+
+  return NextResponse.redirect(`${origin}/sign-in?error=auth_failed`)
+}
+```
+
+### 4. Logg ut-knapp
+
+```typescript
+// apps/nextjs/src/components/sign-out-button.tsx
+'use client'
+import { createClient } from '@myhrvold/db/supabase/client'
+import { useRouter } from 'next/navigation'
+import { Button } from '@myhrvold/ui/button'
+import { LogOut } from 'lucide-react'
+
+export function SignOutButton() {
+  const router = useRouter()
+  const supabase = createClient()
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut()
+    router.push('/sign-in')
+    router.refresh()
+  }
+
   return (
-    <header className="flex items-center justify-between p-4">
-      <h1>Myhrvoldgruppen Portal</h1>
-      <UserButton afterSignOutUrl="/sign-in" />
-    </header>
+    <Button variant="ghost" onClick={handleSignOut}>
+      <LogOut className="h-4 w-4 mr-2" />
+      Logg ut
+    </Button>
   )
 }
 ```
 
 ---
 
-## 🔒 Rollebasert tilgang
-
-### Synkroniser Clerk-bruker med database
+## Hent bruker på server
 
 ```typescript
-// apps/nextjs/src/app/api/webhook/clerk/route.ts
-import { Webhook } from 'svix'
-import { headers } from 'next/headers'
-import { WebhookEvent } from '@clerk/nextjs/server'
-import { db } from '@myhrvold/db'
-import { users } from '@myhrvold/db/schema'
+// I en Server Component
+import { createClient } from '@myhrvold/db/supabase/server'
 
-export async function POST(req: Request) {
-  const WEBHOOK_SECRET = process.env.CLERK_WEBHOOK_SECRET!
+export default async function DashboardPage() {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
 
-  const headerPayload = headers()
-  const svix_id = headerPayload.get('svix-id')
-  const svix_timestamp = headerPayload.get('svix-timestamp')
-  const svix_signature = headerPayload.get('svix-signature')
-
-  const body = await req.text()
-  const wh = new Webhook(WEBHOOK_SECRET)
-  let evt: WebhookEvent
-
-  try {
-    evt = wh.verify(body, {
-      'svix-id': svix_id!,
-      'svix-timestamp': svix_timestamp!,
-      'svix-signature': svix_signature!,
-    }) as WebhookEvent
-  } catch (err) {
-    return new Response('Webhook verification failed', { status: 400 })
-  }
-
-  if (evt.type === 'user.created') {
-    const { id, email_addresses, first_name, last_name } = evt.data
-    
-    await db.insert(users).values({
-      email: email_addresses[0]?.email_address ?? '',
-      firstName: first_name ?? '',
-      lastName: last_name ?? '',
-      oauthProvider: 'clerk',
-      oauthId: id,
-      role: 'user',
-      isActive: true,
-      isApproved: false,  // Må godkjennes av admin
-    })
-  }
-
-  return new Response('OK', { status: 200 })
+  return (
+    <div>
+      <h1>Velkommen, {user?.user_metadata.first_name}!</h1>
+    </div>
+  )
 }
 ```
 
 ---
 
-## 🇳🇴 Norsk lokalisering
-
-Clerk støtter norsk bokmål (`nbNO`):
+## Synkroniser med users-tabell
 
 ```typescript
-import { nbNO } from '@clerk/localizations'
+// Supabase Database Trigger (kjør i SQL Editor)
+create or replace function public.handle_new_user()
+returns trigger as $$
+begin
+  insert into public.users (id, email, first_name, last_name, role, is_active)
+  values (
+    new.id,
+    new.email,
+    new.raw_user_meta_data->>'first_name',
+    new.raw_user_meta_data->>'last_name',
+    'user',
+    true
+  );
+  return new;
+end;
+$$ language plpgsql security definer;
 
-<ClerkProvider localization={nbNO}>
-```
-
-Dette gir:
-- "Logg inn" i stedet for "Sign in"
-- "Registrer deg" i stedet for "Sign up"
-- "Glemt passord?" i stedet for "Forgot password?"
-- Norske feilmeldinger
-
----
-
-## 🎨 Tilpass Clerk-utseende
-
-```typescript
-// Matcher vårt design system
-appearance={{
-  variables: {
-    colorPrimary: '#0d9488',        // Teal
-    colorDanger: '#ef4444',
-    colorSuccess: '#10b981',
-    colorWarning: '#f59e0b',
-    colorNeutral: '#64748b',
-    fontFamily: 'Inter, sans-serif',
-    borderRadius: '0.5rem',
-  },
-  elements: {
-    card: 'shadow-lg border border-gray-200',
-    formButtonPrimary: 'bg-teal-600 hover:bg-teal-700',
-    footerActionLink: 'text-teal-600 hover:text-teal-700',
-  }
-}}
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute procedure public.handle_new_user();
 ```
 
 ---
 
-## ✅ Verifisering
+## Verifisering
 
 1. Start dev server: `pnpm dev`
 2. Gå til http://localhost:3000
 3. Du skal bli redirectet til /sign-in
 4. Registrer deg med e-post
-5. Etter innlogging, sjekk at UserButton vises
+5. Sjekk e-post for bekreftelseslink
+6. Logg inn og bekreft at dashboard vises
 
 ---
 
-## 📦 Leveranse
+## Leveranse
 
-Når denne fasen er fullført har du:
-- ✅ Clerk konfigurert for web
-- ✅ Beskyttede ruter
-- ✅ Norsk lokalisering
-- ✅ Bruker-synkronisering til database
-- ✅ Tilpasset utseende
+- [x] Supabase Auth konfigurert
+- [x] Beskyttede ruter via middleware
+- [x] Sign-in og sign-up sider
+- [x] Bruker-synkronisering til database
+- [x] Norsk UI
 
 ---
 
-## ➡️ Neste fase
+## Neste fase
 [Fase 12: Auth mobil](./fase-12-auth-mobil.md)
