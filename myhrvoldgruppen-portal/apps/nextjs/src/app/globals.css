@@ -1,0 +1,8 @@
+@import "tailwindcss";
+
+:root {
+  --primary-teal: #0d9488;
+  --primary-teal-dark: #0f766e;
+  --accent-orange: #f97316;
+  --accent-orange-dark: #ea580c;
+}

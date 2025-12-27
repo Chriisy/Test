@@ -1,0 +1,12 @@
+{
+  "name": "@myhrvold/tailwind-config",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.js"
+  },
+  "dependencies": {
+    "tailwindcss": "^4.0.0-beta.8"
+  }
+}
