@@ -39,3 +39,6 @@ export { servicePartners, type ServicePartner, type NewServicePartner } from "./
 
 // ========== AUTH-TABELLER ==========
 export { apiTokens, type ApiToken, type NewApiToken } from "./api-tokens";
+
+// ========== RELASJONER (Fase 10) ==========
+export * from "./relations";
