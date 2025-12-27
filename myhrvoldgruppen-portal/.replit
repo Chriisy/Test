@@ -1,0 +1,28 @@
+# Replit configuration for Myhrvoldgruppen Portal
+
+run = "pnpm dev"
+entrypoint = "apps/nextjs/src/app/page.tsx"
+
+[nix]
+channel = "stable-24_05"
+
+[env]
+NODE_ENV = "development"
+DATABASE_URL = "$REPLIT_DB_URL"
+
+[deployment]
+run = ["pnpm", "build", "&&", "pnpm", "start"]
+deploymentTarget = "cloudrun"
+
+[languages]
+[languages.typescript]
+pattern = "**/{*.ts,*.tsx}"
+syntax = "typescript"
+
+[languages.javascript]
+pattern = "**/{*.js,*.jsx}"
+syntax = "javascript"
+
+[[ports]]
+localPort = 3000
+externalPort = 80

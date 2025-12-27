@@ -3,17 +3,21 @@
   "private": true,
   "scripts": {
     "build": "turbo run build",
+    "start": "turbo run start --filter=@myhrvold/nextjs",
     "clean": "git clean -xdf node_modules",
     "clean:workspaces": "turbo run clean",
     "dev": "turbo watch dev",
     "dev:next": "turbo watch dev --filter=@myhrvold/nextjs",
+    "dev:expo": "turbo run dev --filter=@myhrvold/expo",
     "format": "turbo run format --continue -- --cache --cache-location .cache/.prettiercache",
     "format:fix": "turbo run format --continue -- --write --cache --cache-location .cache/.prettiercache",
     "lint": "turbo run lint --continue -- --cache --cache-location .cache/.eslintcache",
     "lint:fix": "turbo run lint --continue -- --fix --cache --cache-location .cache/.eslintcache",
     "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
     "db:push": "turbo run db:push --filter=@myhrvold/db",
-    "db:studio": "turbo run db:studio --filter=@myhrvold/db"
+    "db:studio": "turbo run db:studio --filter=@myhrvold/db",
+    "db:migrate": "turbo run db:migrate --filter=@myhrvold/db"
   },
   "devDependencies": {
     "@myhrvold/prettier-config": "workspace:*",
