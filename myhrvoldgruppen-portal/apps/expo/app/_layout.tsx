@@ -1,15 +1,32 @@
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { View } from "react-native";
-import { AuthProvider } from "../src/providers/auth-provider";
+import { AuthProvider, useAuth } from "../src/providers/auth-provider";
+
+function RootLayoutNav() {
+  const { isAuthenticated, isLoading } = useAuth();
+
+  if (isLoading) {
+    return null;
+  }
+
+  return (
+    <View style={{ flex: 1 }}>
+      <StatusBar style="light" />
+      <Stack screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="index" />
+        <Stack.Screen name="sign-in" />
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="claims/[id]" options={{ headerShown: false }} />
+      </Stack>
+    </View>
+  );
+}
 
 export default function RootLayout() {
   return (
     <AuthProvider>
-      <View style={{ flex: 1 }}>
-        <StatusBar style="auto" />
-        <Stack screenOptions={{ headerShown: false }} />
-      </View>
+      <RootLayoutNav />
     </AuthProvider>
   );
 }
