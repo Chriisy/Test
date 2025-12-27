@@ -2,6 +2,7 @@ import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { View } from "react-native";
 import { AuthProvider, useAuth } from "../src/providers/auth-provider";
+import { TRPCProvider } from "../src/lib/api";
 
 function RootLayoutNav() {
   const { isAuthenticated, isLoading } = useAuth();
@@ -25,8 +26,10 @@ function RootLayoutNav() {
 
 export default function RootLayout() {
   return (
-    <AuthProvider>
-      <RootLayoutNav />
-    </AuthProvider>
+    <TRPCProvider>
+      <AuthProvider>
+        <RootLayoutNav />
+      </AuthProvider>
+    </TRPCProvider>
   );
 }

@@ -5,9 +5,7 @@
   "installCommand": "cd ../.. && pnpm install",
   "outputDirectory": ".next",
   "env": {
-    "DATABASE_URL": "@database-url",
-    "NEXTAUTH_URL": "@nextauth-url",
-    "NEXTAUTH_SECRET": "@nextauth-secret"
+    "DATABASE_URL": "@database-url"
   },
   "headers": [
     {
