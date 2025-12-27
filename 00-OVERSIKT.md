@@ -85,8 +85,8 @@
 ### 🔐 AUTENTISERING (Uke 3) - 8 timer
 | # | Fase | Tid | Fil |
 |---|------|-----|-----|
-| 11 | Auth web (Clerk) | 4-5t | [fase-11](./fase-11-auth-oppsett.md) |
-| 12 | Auth mobil (Expo + Clerk) | 3-4t | [fase-12](./fase-12-auth-mobil.md) |
+| 11 | Auth web (Replit Auth) | 4-5t | [fase-11](./fase-11-auth-oppsett.md) |
+| 12 | Auth mobil (Expo + Replit) | 3-4t | [fase-12](./fase-12-auth-mobil.md) |
 
 ### 💻 WEB-PORTAL (Uke 4-6) - 55 timer
 | # | Fase | Tid | Fil |
@@ -149,7 +149,7 @@
 
 ### Månedlige:
 - Vercel Pro: $20/mnd
-- Supabase Pro (Frankfurt): $25/mnd
+- Replit Core: $25/mnd (inkl. PostgreSQL, Auth, Object Storage)
 - (Valgfritt) Claude Max: $100/mnd
 
 ### År 1 totalt: ~$700-$1900
@@ -168,7 +168,7 @@
 ├── Backend
 │   ├── tRPC v11
 │   ├── Drizzle ORM
-│   └── PostgreSQL (Supabase)
+│   └── PostgreSQL (Replit)
 │
 ├── Mobil
 │   ├── Expo SDK 54
@@ -176,13 +176,17 @@
 │   └── NativeWind v4
 │
 ├── Auth
-│   └── Supabase Auth (web + mobil)
+│   └── Replit Auth (web + mobil)
 │
 ├── Tilleggstjenester
 │   ├── Sentry (feilhåndtering)
 │   ├── Resend (e-post)
 │   ├── @react-pdf/renderer (PDF-generering)
-│   └── Supabase Storage (bilder, filer)
+│   └── Replit Object Storage (bilder, filer)
+│
+├── Hosting
+│   ├── Replit (utvikling + database)
+│   └── Vercel (produksjon web)
 │
 └── Monorepo
     ├── Turborepo

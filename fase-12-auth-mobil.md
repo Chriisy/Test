@@ -1,4 +1,4 @@
-# Fase 12: Auth Mobil (Expo + Supabase)
+# Fase 12: Auth Mobil (Expo + Replit Backend)
 
 **Kategori:** AUTENTISERING
 **Tid:** 3-4 timer
@@ -8,207 +8,297 @@
 ---
 
 ## Mål
-Sette opp Supabase Auth for Expo mobil-app med secure storage for tokens.
+Sette opp autentisering for Expo mobil-app som kommuniserer med Replit backend via API tokens.
 
 ---
 
-## Fordel med Supabase Auth for mobil
+## Strategi for mobil auth
 
-- Samme auth-system som web
-- Deler brukerbase
-- Enkel token-håndtering
-- Fungerer med Expo
+Siden Replit Auth er beregnet for web-bruk, bruker vi en token-basert tilnærming for mobil:
+
+1. Bruker logger inn via web (Replit Auth)
+2. Genererer en API-token
+3. Mobil-appen bruker token for autentisering
 
 ---
 
 ## Sjekkliste
 
 ### 12.1 Installer pakker
+
 ```bash
-pnpm add @supabase/supabase-js expo-secure-store @react-native-async-storage/async-storage --filter @myhrvold/expo
+pnpm add expo-secure-store @react-native-async-storage/async-storage --filter @myhrvold/expo
 ```
 
-### 12.2 Supabase Client for Expo
+---
+
+### 12.2 Token Storage
 
 ```typescript
-// apps/expo/src/lib/supabase.ts
-import 'react-native-url-polyfill/auto'
-import { createClient } from '@supabase/supabase-js'
-import * as SecureStore from 'expo-secure-store'
+// apps/expo/src/lib/auth-storage.ts
+import * as SecureStore from 'expo-secure-store';
 
-const ExpoSecureStoreAdapter = {
-  getItem: (key: string) => {
-    return SecureStore.getItemAsync(key)
-  },
-  setItem: (key: string, value: string) => {
-    SecureStore.setItemAsync(key, value)
-  },
-  removeItem: (key: string) => {
-    SecureStore.deleteItemAsync(key)
-  },
-}
+const TOKEN_KEY = 'myhrvold_auth_token';
+const USER_KEY = 'myhrvold_user';
 
-export const supabase = createClient(
-  process.env.EXPO_PUBLIC_SUPABASE_URL!,
-  process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!,
-  {
-    auth: {
-      storage: ExpoSecureStoreAdapter,
-      autoRefreshToken: true,
-      persistSession: true,
-      detectSessionInUrl: false,
-    },
-  }
-)
+export const authStorage = {
+  async getToken(): Promise<string | null> {
+    try {
+      return await SecureStore.getItemAsync(TOKEN_KEY);
+    } catch {
+      return null;
+    }
+  },
+
+  async setToken(token: string): Promise<void> {
+    await SecureStore.setItemAsync(TOKEN_KEY, token);
+  },
+
+  async removeToken(): Promise<void> {
+    await SecureStore.deleteItemAsync(TOKEN_KEY);
+  },
+
+  async getUser(): Promise<any | null> {
+    try {
+      const user = await SecureStore.getItemAsync(USER_KEY);
+      return user ? JSON.parse(user) : null;
+    } catch {
+      return null;
+    }
+  },
+
+  async setUser(user: any): Promise<void> {
+    await SecureStore.setItemAsync(USER_KEY, JSON.stringify(user));
+  },
+
+  async removeUser(): Promise<void> {
+    await SecureStore.deleteItemAsync(USER_KEY);
+  },
+
+  async clear(): Promise<void> {
+    await Promise.all([
+      SecureStore.deleteItemAsync(TOKEN_KEY),
+      SecureStore.deleteItemAsync(USER_KEY),
+    ]);
+  },
+};
 ```
 
-### 12.3 Auth Context
+---
+
+### 12.3 API Client
+
+```typescript
+// apps/expo/src/lib/api.ts
+import { authStorage } from './auth-storage';
+
+const API_URL = process.env.EXPO_PUBLIC_API_URL;
+
+export async function apiClient<T>(
+  endpoint: string,
+  options: RequestInit = {}
+): Promise<T> {
+  const token = await authStorage.getToken();
+
+  const response = await fetch(`${API_URL}${endpoint}`, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token && { Authorization: `Bearer ${token}` }),
+      ...options.headers,
+    },
+  });
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      await authStorage.clear();
+      throw new Error('Unauthorized');
+    }
+    throw new Error(`API error: ${response.status}`);
+  }
+
+  return response.json();
+}
+```
+
+---
+
+### 12.4 Auth Context
 
 ```typescript
 // apps/expo/src/providers/auth-provider.tsx
-import { createContext, useContext, useEffect, useState } from 'react'
-import { Session, User } from '@supabase/supabase-js'
-import { supabase } from '../lib/supabase'
+import { createContext, useContext, useEffect, useState } from 'react';
+import { authStorage } from '../lib/auth-storage';
+import { apiClient } from '../lib/api';
 
-type AuthContextType = {
-  user: User | null
-  session: Session | null
-  isLoading: boolean
-  signIn: (email: string, password: string) => Promise<{ error: Error | null }>
-  signOut: () => Promise<void>
+interface User {
+  id: string;
+  name: string;
+  email?: string;
+  role: string;
 }
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined)
+interface AuthContextType {
+  user: User | null;
+  isLoading: boolean;
+  isAuthenticated: boolean;
+  signIn: (token: string) => Promise<void>;
+  signOut: () => Promise<void>;
+}
+
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null)
-  const [session, setSession] = useState<Session | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
+  const [user, setUser] = useState<User | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Hent eksisterende session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session)
-      setUser(session?.user ?? null)
-      setIsLoading(false)
-    })
+    loadUser();
+  }, []);
 
-    // Lytt til auth-endringer
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
-        setSession(session)
-        setUser(session?.user ?? null)
+  async function loadUser() {
+    try {
+      const token = await authStorage.getToken();
+      if (token) {
+        const userData = await apiClient<User>('/api/auth/me');
+        setUser(userData);
+        await authStorage.setUser(userData);
       }
-    )
-
-    return () => subscription.unsubscribe()
-  }, [])
-
-  const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    })
-    return { error }
+    } catch (error) {
+      console.error('Failed to load user:', error);
+      await authStorage.clear();
+    } finally {
+      setIsLoading(false);
+    }
   }
 
-  const signOut = async () => {
-    await supabase.auth.signOut()
+  async function signIn(token: string) {
+    await authStorage.setToken(token);
+    await loadUser();
+  }
+
+  async function signOut() {
+    await authStorage.clear();
+    setUser(null);
   }
 
   return (
-    <AuthContext.Provider value={{ user, session, isLoading, signIn, signOut }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        isLoading,
+        isAuthenticated: !!user,
+        signIn,
+        signOut,
+      }}
+    >
       {children}
     </AuthContext.Provider>
-  )
+  );
 }
 
 export const useAuth = () => {
-  const context = useContext(AuthContext)
+  const context = useContext(AuthContext);
   if (!context) {
-    throw new Error('useAuth must be used within AuthProvider')
+    throw new Error('useAuth must be used within AuthProvider');
   }
-  return context
-}
+  return context;
+};
 ```
 
-### 12.4 Root Layout
+---
+
+### 12.5 Root Layout
 
 ```typescript
 // apps/expo/app/_layout.tsx
-import { Stack } from 'expo-router'
-import { AuthProvider } from '../src/providers/auth-provider'
+import { Stack } from 'expo-router';
+import { AuthProvider } from '../src/providers/auth-provider';
 
 export default function RootLayout() {
   return (
     <AuthProvider>
       <Stack screenOptions={{ headerShown: false }} />
     </AuthProvider>
-  )
+  );
 }
 ```
 
-### 12.5 Login-skjerm
+---
+
+### 12.6 Login-skjerm med token
 
 ```typescript
 // apps/expo/app/sign-in.tsx
-import { useState } from 'react'
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native'
-import { useRouter } from 'expo-router'
-import { useAuth } from '../src/providers/auth-provider'
+import { useState } from 'react';
+import {
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  StyleSheet,
+  ActivityIndicator,
+  Linking,
+} from 'react-native';
+import { useRouter } from 'expo-router';
+import { useAuth } from '../src/providers/auth-provider';
 
 export default function SignInScreen() {
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
-  const { signIn } = useAuth()
-  const router = useRouter()
+  const [token, setToken] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const { signIn } = useAuth();
+  const router = useRouter();
 
   const handleSignIn = async () => {
-    setLoading(true)
-    setError(null)
-
-    const { error } = await signIn(email, password)
-
-    if (error) {
-      setError(error.message)
-      setLoading(false)
-    } else {
-      router.replace('/(auth)/')
+    if (!token.trim()) {
+      setError('Vennligst skriv inn din API-token');
+      return;
     }
-  }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      await signIn(token.trim());
+      router.replace('/(auth)/');
+    } catch (err) {
+      setError('Ugyldig token. Prøv igjen.');
+      setLoading(false);
+    }
+  };
+
+  const openWebPortal = () => {
+    Linking.openURL(process.env.EXPO_PUBLIC_WEB_URL || 'https://your-app.replit.app');
+  };
 
   return (
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.logo}>Myhrvoldgruppen</Text>
-        <Text style={styles.subtitle}>Logg inn på portalen</Text>
+        <Text style={styles.subtitle}>Mobil Portal</Text>
       </View>
 
       <View style={styles.form}>
+        <Text style={styles.instructions}>
+          Logg inn på web-portalen for å hente din API-token
+        </Text>
+
+        <TouchableOpacity style={styles.linkButton} onPress={openWebPortal}>
+          <Text style={styles.linkButtonText}>Åpne web-portalen</Text>
+        </TouchableOpacity>
+
         <TextInput
           style={styles.input}
-          placeholder="E-post"
-          value={email}
-          onChangeText={setEmail}
+          placeholder="Lim inn API-token"
+          value={token}
+          onChangeText={setToken}
           autoCapitalize="none"
-          keyboardType="email-address"
-          autoComplete="email"
-        />
-
-        <TextInput
-          style={styles.input}
-          placeholder="Passord"
-          value={password}
-          onChangeText={setPassword}
+          autoCorrect={false}
           secureTextEntry
-          autoComplete="password"
         />
 
-        {error && (
-          <Text style={styles.error}>{error}</Text>
-        )}
+        {error && <Text style={styles.error}>{error}</Text>}
 
         <TouchableOpacity
           style={[styles.button, loading && styles.buttonDisabled]}
@@ -223,7 +313,7 @@ export default function SignInScreen() {
         </TouchableOpacity>
       </View>
     </View>
-  )
+  );
 }
 
 const styles = StyleSheet.create({
@@ -257,6 +347,24 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 4,
   },
+  instructions: {
+    fontSize: 14,
+    color: '#64748b',
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  linkButton: {
+    backgroundColor: '#e0f2fe',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 20,
+    alignItems: 'center',
+  },
+  linkButtonText: {
+    color: '#0369a1',
+    fontSize: 14,
+    fontWeight: '600',
+  },
   input: {
     borderWidth: 1,
     borderColor: '#e2e8f0',
@@ -284,58 +392,75 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
-})
+});
 ```
 
-### 12.6 Beskyttet navigasjon
+---
+
+### 12.7 Beskyttet navigasjon
 
 ```typescript
 // apps/expo/app/(auth)/_layout.tsx
-import { useAuth } from '../../src/providers/auth-provider'
-import { Redirect, Stack } from 'expo-router'
-import { View, ActivityIndicator } from 'react-native'
+import { useAuth } from '../../src/providers/auth-provider';
+import { Redirect, Stack } from 'expo-router';
+import { View, ActivityIndicator } from 'react-native';
 
 export default function AuthLayout() {
-  const { user, isLoading } = useAuth()
+  const { isAuthenticated, isLoading } = useAuth();
 
   if (isLoading) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
         <ActivityIndicator size="large" color="#0d9488" />
       </View>
-    )
+    );
   }
 
-  if (!user) {
-    return <Redirect href="/sign-in" />
+  if (!isAuthenticated) {
+    return <Redirect href="/sign-in" />;
   }
 
-  return <Stack screenOptions={{ headerShown: false }} />
+  return <Stack screenOptions={{ headerShown: false }} />;
 }
 ```
 
-### 12.7 Logg ut-knapp
+---
+
+### 12.8 Logg ut-knapp
 
 ```typescript
 // apps/expo/src/components/sign-out-button.tsx
-import { TouchableOpacity, Text, StyleSheet } from 'react-native'
-import { useAuth } from '../providers/auth-provider'
-import { useRouter } from 'expo-router'
+import { TouchableOpacity, Text, StyleSheet, Alert } from 'react-native';
+import { useAuth } from '../providers/auth-provider';
+import { useRouter } from 'expo-router';
 
 export function SignOutButton() {
-  const { signOut } = useAuth()
-  const router = useRouter()
+  const { signOut } = useAuth();
+  const router = useRouter();
 
-  const handleSignOut = async () => {
-    await signOut()
-    router.replace('/sign-in')
-  }
+  const handleSignOut = () => {
+    Alert.alert(
+      'Logg ut',
+      'Er du sikker på at du vil logge ut?',
+      [
+        { text: 'Avbryt', style: 'cancel' },
+        {
+          text: 'Logg ut',
+          style: 'destructive',
+          onPress: async () => {
+            await signOut();
+            router.replace('/sign-in');
+          },
+        },
+      ]
+    );
+  };
 
   return (
     <TouchableOpacity style={styles.button} onPress={handleSignOut}>
       <Text style={styles.text}>Logg ut</Text>
     </TouchableOpacity>
-  )
+  );
 }
 
 const styles = StyleSheet.create({
@@ -346,7 +471,54 @@ const styles = StyleSheet.create({
     color: '#ef4444',
     fontSize: 16,
   },
-})
+});
+```
+
+---
+
+## Backend: Token-generering
+
+Legg til i web-portalen for å generere API-tokens:
+
+```typescript
+// packages/api/src/routers/tokens.ts
+import { router, protectedProcedure } from '../trpc';
+import { db } from '@myhrvold/db';
+import { apiTokens } from '@myhrvold/db/schema';
+import { randomBytes } from 'crypto';
+
+export const tokensRouter = router({
+  create: protectedProcedure
+    .mutation(async ({ ctx }) => {
+      const token = randomBytes(32).toString('hex');
+
+      await db.insert(apiTokens).values({
+        userId: ctx.user.id,
+        token,
+        name: 'Mobile App',
+        expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), // 1 år
+      });
+
+      return { token };
+    }),
+
+  list: protectedProcedure
+    .query(async ({ ctx }) => {
+      return db.query.apiTokens.findMany({
+        where: (tokens, { eq }) => eq(tokens.userId, ctx.user.id),
+      });
+    }),
+
+  revoke: protectedProcedure
+    .input(z.object({ tokenId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      await db.delete(apiTokens)
+        .where(and(
+          eq(apiTokens.id, input.tokenId),
+          eq(apiTokens.userId, ctx.user.id)
+        ));
+    }),
+});
 ```
 
 ---
@@ -355,8 +527,8 @@ const styles = StyleSheet.create({
 
 ```bash
 # apps/expo/.env
-EXPO_PUBLIC_SUPABASE_URL=https://xxx.supabase.co
-EXPO_PUBLIC_SUPABASE_ANON_KEY=eyJhbG...
+EXPO_PUBLIC_API_URL=https://your-app.replit.app
+EXPO_PUBLIC_WEB_URL=https://your-app.replit.app
 ```
 
 ---
@@ -365,19 +537,21 @@ EXPO_PUBLIC_SUPABASE_ANON_KEY=eyJhbG...
 
 1. Start Expo: `pnpm dev --filter @myhrvold/expo`
 2. Åpne i Expo Go eller Development Build
-3. Prøv å logge inn med samme bruker som web
-4. Sjekk at session vedvarer etter app-restart
-5. Test logg ut
+3. Trykk "Åpne web-portalen"
+4. Logg inn på web og generer API-token
+5. Lim inn token i mobil-appen
+6. Sjekk at du kommer til hovedskjermen
+7. Test logg ut
 
 ---
 
 ## Leveranse
 
-- [x] Supabase Auth for Expo konfigurert
+- [x] Token-basert auth for mobil
 - [x] SecureStore for sikker token-lagring
 - [x] Login-skjerm med norsk UI
 - [x] Beskyttet navigasjon
-- [x] Delt brukerbase med web
+- [x] Kobling til Replit backend
 
 ---
 

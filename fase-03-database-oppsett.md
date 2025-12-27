@@ -1,86 +1,99 @@
-# Fase 3: Database-oppsett
+# Fase 3: Database-oppsett (Replit PostgreSQL)
 
-**Kategori:** 🏗️ FUNDAMENT  
-**Tid:** 1-2 timer  
-**Prioritet:** 🔴 Kritisk  
+**Kategori:** FUNDAMENT
+**Tid:** 1-2 timer
+**Prioritet:** Kritisk
 **Avhengigheter:** Fase 2 fullført
 
 ---
 
-## 🎯 Mål
-Sette opp Supabase PostgreSQL database i EU (Frankfurt) og koble til prosjektet.
+## Mål
+Sette opp Replit PostgreSQL database og koble til prosjektet med Drizzle ORM.
 
 ---
 
-## 📋 Sjekkliste
+## Hvorfor Replit PostgreSQL?
 
-### 3.1 Opprett Supabase-konto
+| Fordel | Beskrivelse |
+|--------|-------------|
+| Integrert | Database inkludert i Replit-plattformen |
+| Enkel oppsett | Automatisk provisjonering |
+| Samme miljø | Alt utviklingsverktøy på ett sted |
+| Skalerbart | Oppgrader enkelt ved behov |
 
-1. Gå til https://supabase.com/
-2. Klikk "Start your project"
+---
+
+## Sjekkliste
+
+### 3.1 Opprett Replit-konto
+
+1. Gå til https://replit.com/
+2. Klikk "Sign Up"
 3. Logg inn med GitHub (anbefalt)
-4. Godkjenn tilgang
+4. Velg "Core" plan for PostgreSQL-tilgang
 
 ---
 
-### 3.2 Opprett nytt prosjekt
+### 3.2 Opprett nytt Repl
 
-1. Klikk "New project"
-2. Velg organisasjon (eller opprett ny)
-3. Fyll inn:
-   - **Name:** `myhrvoldgruppen-portal`
-   - **Database Password:** Generer sterkt passord (LAGRE DETTE!)
-   - **Region:** `eu-central-1 (Frankfurt)` ← VIKTIG for GDPR!
-   - **Plan:** Free tier (eller Pro $25/mnd)
-
-4. Klikk "Create new project"
-5. Vent 2-3 minutter mens databasen opprettes
+1. Klikk "Create Repl"
+2. Velg "Node.js" som template
+3. Gi det navn: `myhrvoldgruppen-portal`
+4. Klikk "Create Repl"
 
 ---
 
-### 3.3 Hent database-URL
+### 3.3 Aktiver PostgreSQL
 
-1. Gå til Project Settings → Database
-2. Finn "Connection string" seksjonen
-3. Velg "URI" format
-4. Kopier URLen (ser slik ut):
+1. I Replit, klikk på "Tools" i sidepanelet
+2. Velg "Database"
+3. Klikk "Create a database"
+4. Velg "PostgreSQL"
+5. Vent mens databasen provisjoneres
+
+Replit oppretter automatisk miljøvariabelen `DATABASE_URL`.
+
+---
+
+### 3.4 Hent database-URL
+
+Miljøvariabelen er allerede satt i Replit. Du finner den under:
+
+1. Klikk "Secrets" (låsikon) i sidepanelet
+2. Se `DATABASE_URL` - den ser slik ut:
    ```
-   postgresql://postgres.[ref]:[password]@aws-0-eu-central-1.pooler.supabase.com:5432/postgres
+   postgresql://user:password@host:5432/database
    ```
 
-**VIKTIG:** Bytt ut `[password]` med ditt faktiske passord!
+For lokal utvikling, kopier denne til din `.env` fil.
 
 ---
 
-### 3.4 Konfigurer miljøvariabler
+### 3.5 Konfigurer for lokal utvikling
 
-I prosjektmappen, opprett `.env` fil:
+I prosjektmappen lokalt, opprett `.env` fil:
 
 ```bash
-# I WSL terminal
+# I terminal
 cd ~/myhrvoldgruppen/myhrvoldgruppen-portal
 
 # Opprett .env fil
 touch .env
 ```
 
-Åpne `.env` i VS Code og legg til:
+Åpne `.env` og legg til:
 
 ```bash
-# Database
-DATABASE_URL="postgresql://postgres.[ref]:[password]@aws-0-eu-central-1.pooler.supabase.com:5432/postgres"
+# Database (kopier fra Replit Secrets)
+DATABASE_URL="postgresql://user:password@host:5432/database"
 
-# Direct URL (for migrasjoner)
-DIRECT_URL="postgresql://postgres.[ref]:[password]@aws-0-eu-central-1.pooler.supabase.com:5432/postgres"
+# Direct URL (samme som DATABASE_URL for Replit)
+DIRECT_URL="postgresql://user:password@host:5432/database"
 ```
-
-**Bytt ut:**
-- `[ref]` med din prosjekt-referanse (f.eks. `abcd1234`)
-- `[password]` med ditt database-passord
 
 ---
 
-### 3.5 Oppdater packages/db konfigurasjon
+### 3.6 Oppdater packages/db konfigurasjon
 
 Åpne `packages/db/drizzle.config.ts`:
 
@@ -100,10 +113,31 @@ export default {
 
 ---
 
-### 3.6 Test database-tilkobling
+### 3.7 Database-klient
+
+Opprett `packages/db/src/client.ts`:
+
+```typescript
+import { drizzle } from "drizzle-orm/node-postgres";
+import { Pool } from "pg";
+import * as schema from "./schema";
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.NODE_ENV === "production"
+    ? { rejectUnauthorized: false }
+    : false,
+});
+
+export const db = drizzle(pool, { schema });
+```
+
+---
+
+### 3.8 Test database-tilkobling
 
 ```bash
-# Push schema til database (selv om den er tom)
+# Push schema til database
 pnpm db:push
 
 # Skal vise:
@@ -117,43 +151,46 @@ pnpm db:studio
 
 ---
 
-### 3.7 Verifiser i Supabase Dashboard
+### 3.9 Verifiser i Replit
 
-1. Gå til Supabase Dashboard
-2. Velg ditt prosjekt
-3. Klikk "Table Editor" i sidemenyen
+1. Gå til Replit Dashboard
+2. Åpne ditt prosjekt
+3. Klikk "Database" i sidepanelet
 4. Du skal se en tom database (ingen tabeller enda)
 
 ---
 
-## 🔧 Supabase-innstillinger
+## Replit Database Verktøy
 
-### Aktiver Row Level Security (RLS) senere
-Vi konfigurerer RLS i Fase 10, men det er godt å vite at Supabase bruker dette for sikkerhet.
+Replit inkluderer et database-grensesnitt:
 
-### Pooler vs Direct connection
-- **Pooler** (port 5432): For applikasjonen, håndterer mange tilkoblinger
-- **Direct** (port 5432): For migrasjoner og Drizzle Studio
+1. Klikk "Database" i sidepanelet
+2. Bla gjennom tabeller
+3. Kjør SQL-spørringer direkte
+4. Se data og skjema
 
 ---
 
-## 🔧 Vanlige problemer
+## Vanlige problemer
 
 ### "Connection refused"
-1. Sjekk at DATABASE_URL er riktig
-2. Sjekk at passord ikke inneholder spesialtegn som må escapes
-3. Prøv å bruke Session pooler i stedet
-
-### "Password authentication failed"
-1. Gå til Supabase → Settings → Database
-2. Klikk "Reset database password"
-3. Oppdater `.env` med nytt passord
+1. Sjekk at DATABASE_URL er korrekt kopiert fra Replit
+2. Verifiser at databasen er aktiv i Replit
+3. Sjekk nettverkstilgang
 
 ### "SSL required"
-Legg til `?sslmode=require` på slutten av DATABASE_URL:
+Legg til SSL-konfigurasjon i pool:
+```typescript
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false },
+});
 ```
-postgresql://...@aws-0-eu-central-1.pooler.supabase.com:5432/postgres?sslmode=require
-```
+
+### "Password authentication failed"
+1. Gå til Replit → Secrets
+2. Kopier DATABASE_URL på nytt
+3. Oppdater `.env` lokalt
 
 ### Drizzle Studio åpner ikke
 ```bash
@@ -167,7 +204,7 @@ npx drizzle-kit studio
 
 ---
 
-## 📁 Fil-sjekkliste
+## Fil-sjekkliste
 
 Disse filene skal eksistere:
 ```
@@ -178,6 +215,7 @@ myhrvoldgruppen-portal/
 │       ├── drizzle.config.ts      # Drizzle konfigurasjon
 │       ├── src/
 │       │   ├── index.ts           # Database eksport
+│       │   ├── client.ts          # Database-klient
 │       │   └── schema/
 │       │       └── index.ts       # Schema eksport
 │       └── package.json
@@ -185,34 +223,35 @@ myhrvoldgruppen-portal/
 
 ---
 
-## ✅ Verifisering
+## Verifisering
 
-- [ ] Supabase prosjekt opprettet i `eu-central-1 (Frankfurt)`
-- [ ] DATABASE_URL lagret i `.env`
+- [ ] Replit prosjekt opprettet
+- [ ] PostgreSQL database aktivert
+- [ ] DATABASE_URL lagret i Secrets
+- [ ] DATABASE_URL kopiert til lokal `.env`
 - [ ] `pnpm db:push` kjører uten feil
 - [ ] `pnpm db:studio` åpner Drizzle Studio
-- [ ] Supabase Dashboard viser prosjektet
 
 ---
 
-## 📦 Leveranse
+## Leveranse
 
 Når denne fasen er fullført har du:
-- ✅ Supabase PostgreSQL database i Frankfurt (EU)
-- ✅ Database-tilkobling konfigurert
-- ✅ Drizzle ORM konfigurert
-- ✅ Drizzle Studio fungerer
-- ✅ Klar til å opprette tabeller
+- PostgreSQL database i Replit
+- Database-tilkobling konfigurert
+- Drizzle ORM konfigurert
+- Drizzle Studio fungerer
+- Klar til å opprette tabeller
 
 ---
 
-## 🔒 Sikkerhet
+## Sikkerhet
 
 **VIKTIG:**
 - `.env` filen skal ALDRI committes til Git
 - Sjekk at `.gitignore` inneholder `.env`
-- Database-passordet skal være sterkt (16+ tegn)
-- Bruk Frankfurt region for GDPR-compliance
+- Bruk Replit Secrets for produksjonsmiljø
+- Aldri del DATABASE_URL offentlig
 
 ```bash
 # Sjekk .gitignore
@@ -222,10 +261,10 @@ cat .gitignore | grep env
 
 ---
 
-## 🔧 Claude Code Prompt
+## Claude Code Prompt
 
 ```
-Jeg har satt opp Supabase database for Myhrvoldgruppen.
+Jeg har satt opp Replit PostgreSQL database for Myhrvoldgruppen.
 
 Kan du:
 1. Verifisere at drizzle.config.ts er korrekt
@@ -237,5 +276,5 @@ Ikke vis meg passord eller sensitive data.
 
 ---
 
-## ➡️ Neste fase
+## Neste fase
 [Fase 4: CLAUDE.md konfigurasjon](./fase-04-claude-md-konfigurasjon.md)

@@ -1,151 +1,135 @@
-# Fase 11: Auth-oppsett (Supabase Auth)
+# Fase 11: Auth-oppsett (Replit Auth)
 
 **Kategori:** AUTENTISERING
 **Tid:** 4-5 timer
 **Prioritet:** Kritisk
-**Avhengigheter:** Fase 3 fullført (Supabase-oppsett)
+**Avhengigheter:** Fase 3 fullført (Database-oppsett)
 
 ---
 
 ## Mål
-Sette opp Supabase Auth for web-portalen med e-post/passord, beskyttede ruter og rollebasert tilgang.
+Sette opp Replit Auth for web-portalen med beskyttede ruter og rollebasert tilgang.
 
 ---
 
-## Hvorfor Supabase Auth?
+## Hvorfor Replit Auth?
 
 | Fordel | Beskrivelse |
 |--------|-------------|
-| Allerede inkludert | Du bruker allerede Supabase for database |
-| Gratis | Inkludert i Supabase-planen |
-| RLS-integrasjon | Row Level Security fungerer automatisk |
-| Enkel oppsett | Samme SDK for web og mobil |
+| Integrert | Samme plattform som database |
+| Enkelt | Minimalt oppsett kreves |
+| Sikkert | Håndtert av Replit |
+| Gratis | Inkludert i Replit-planen |
 
 ---
 
 ## Sjekkliste
 
-### 11.1 Aktiver Auth i Supabase
-- [ ] Gå til Supabase Dashboard -> Authentication
-- [ ] Enable Email provider
-- [ ] (Valgfritt) Enable Google OAuth
-- [ ] Sett "Site URL" til `http://localhost:3000`
-- [ ] Legg til redirect URLs
+### 11.1 Aktiver Auth i Replit
+
+1. Åpne Replit-prosjektet
+2. Klikk "Tools" i sidepanelet
+3. Velg "Authentication"
+4. Klikk "Enable authentication"
+5. Velg innloggingsmetoder (Google, GitHub, etc.)
+
+---
 
 ### 11.2 Installer pakker
-```bash
-pnpm add @supabase/supabase-js @supabase/ssr --filter @myhrvold/nextjs
-```
 
-### 11.3 Miljøvariabler
 ```bash
-# .env
-NEXT_PUBLIC_SUPABASE_URL=https://xxx.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbG...
+pnpm add @replit/repl-auth --filter @myhrvold/nextjs
 ```
 
 ---
 
-## Supabase Client Setup
+### 11.3 Miljøvariabler
 
-### 1. Browser Client
+Replit setter automatisk opp auth-variabler. For lokal utvikling:
+
+```bash
+# .env
+REPLIT_DB_URL=your-replit-db-url
+REPL_ID=your-repl-id
+REPL_OWNER=your-username
+```
+
+---
+
+## Auth Wrapper
+
+### 1. Auth Utility
 
 ```typescript
-// packages/db/src/supabase/client.ts
-import { createBrowserClient } from '@supabase/ssr'
+// packages/db/src/auth/replit.ts
+import { getUserInfo } from '@replit/repl-auth';
+import type { NextRequest } from 'next/server';
 
-export function createClient() {
-  return createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  )
+export interface ReplitUser {
+  id: string;
+  name: string;
+  profileImage?: string;
+  roles?: string[];
+}
+
+export async function getReplitUser(request: NextRequest): Promise<ReplitUser | null> {
+  const userInfo = await getUserInfo(request);
+
+  if (!userInfo) {
+    return null;
+  }
+
+  return {
+    id: userInfo.id,
+    name: userInfo.name,
+    profileImage: userInfo.profileImage,
+    roles: userInfo.roles || ['user'],
+  };
+}
+
+export function isAuthenticated(request: NextRequest): boolean {
+  const userHeader = request.headers.get('X-Replit-User-Id');
+  return !!userHeader;
 }
 ```
 
-### 2. Server Client
+---
 
-```typescript
-// packages/db/src/supabase/server.ts
-import { createServerClient, type CookieOptions } from '@supabase/ssr'
-import { cookies } from 'next/headers'
-
-export async function createClient() {
-  const cookieStore = await cookies()
-
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return cookieStore.getAll()
-        },
-        setAll(cookiesToSet) {
-          try {
-            cookiesToSet.forEach(({ name, value, options }) =>
-              cookieStore.set(name, value, options)
-            )
-          } catch {
-            // Server Component - ignore
-          }
-        },
-      },
-    }
-  )
-}
-```
-
-### 3. Middleware
+### 2. Middleware
 
 ```typescript
 // apps/nextjs/src/middleware.ts
-import { createServerClient } from '@supabase/ssr'
-import { NextResponse, type NextRequest } from 'next/server'
+import { NextResponse, type NextRequest } from 'next/server';
 
 export async function middleware(request: NextRequest) {
-  let supabaseResponse = NextResponse.next({ request })
-
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll()
-        },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value }) =>
-            request.cookies.set(name, value)
-          )
-          supabaseResponse = NextResponse.next({ request })
-          cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, options)
-          )
-        },
-      },
-    }
-  )
-
-  const { data: { user } } = await supabase.auth.getUser()
+  const userId = request.headers.get('X-Replit-User-Id');
+  const userName = request.headers.get('X-Replit-User-Name');
 
   // Offentlige ruter
-  const publicRoutes = ['/sign-in', '/sign-up', '/auth/callback']
+  const publicRoutes = ['/sign-in', '/api/auth'];
   const isPublicRoute = publicRoutes.some(route =>
     request.nextUrl.pathname.startsWith(route)
-  )
+  );
 
-  if (!user && !isPublicRoute) {
-    const url = request.nextUrl.clone()
-    url.pathname = '/sign-in'
-    return NextResponse.redirect(url)
+  if (!userId && !isPublicRoute) {
+    const url = request.nextUrl.clone();
+    url.pathname = '/sign-in';
+    return NextResponse.redirect(url);
   }
 
-  return supabaseResponse
+  // Legg til brukerinfo i response headers for bruk i komponenter
+  const response = NextResponse.next();
+  if (userId) {
+    response.headers.set('x-user-id', userId);
+    response.headers.set('x-user-name', userName || '');
+  }
+
+  return response;
 }
 
 export const config = {
   matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\\..*).*)'],
-}
+};
 ```
 
 ---
@@ -156,39 +140,15 @@ export const config = {
 
 ```typescript
 // apps/nextjs/src/app/sign-in/page.tsx
-'use client'
-import { useState } from 'react'
-import { createClient } from '@myhrvold/db/supabase/client'
-import { useRouter } from 'next/navigation'
-import { Button } from '@myhrvold/ui/button'
-import { Input } from '@myhrvold/ui/input'
+'use client';
+
+import { Button } from '@myhrvold/ui/button';
 
 export default function SignInPage() {
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
-  const router = useRouter()
-  const supabase = createClient()
-
-  const handleSignIn = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setLoading(true)
-    setError(null)
-
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    })
-
-    if (error) {
-      setError(error.message)
-      setLoading(false)
-    } else {
-      router.push('/')
-      router.refresh()
-    }
-  }
+  const handleSignIn = () => {
+    // Replit Auth redirect
+    window.location.href = '/__replauthLogin';
+  };
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-gray-50">
@@ -198,216 +158,157 @@ export default function SignInPage() {
           <p className="text-gray-600 mt-2">Logg inn på portalen</p>
         </div>
 
-        <form onSubmit={handleSignIn} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              E-post
-            </label>
-            <Input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="din@epost.no"
-              required
-            />
-          </div>
+        <Button onClick={handleSignIn} className="w-full">
+          Logg inn med Replit
+        </Button>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Passord
-            </label>
-            <Input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="********"
-              required
-            />
-          </div>
-
-          {error && (
-            <p className="text-red-600 text-sm">{error}</p>
-          )}
-
-          <Button type="submit" className="w-full" disabled={loading}>
-            {loading ? 'Logger inn...' : 'Logg inn'}
-          </Button>
-        </form>
-
-        <p className="text-center text-sm text-gray-600 mt-6">
-          Har du ikke konto?{' '}
-          <a href="/sign-up" className="text-teal-600 hover:underline">
-            Registrer deg
-          </a>
+        <p className="text-center text-sm text-gray-500 mt-6">
+          Bruk din Replit-konto for å logge inn
         </p>
       </div>
     </div>
-  )
+  );
 }
 ```
 
-### 2. Sign-up side
+---
+
+### 2. Auth Context
 
 ```typescript
-// apps/nextjs/src/app/sign-up/page.tsx
-'use client'
-import { useState } from 'react'
-import { createClient } from '@myhrvold/db/supabase/client'
-import { Button } from '@myhrvold/ui/button'
-import { Input } from '@myhrvold/ui/input'
+// apps/nextjs/src/providers/auth-provider.tsx
+'use client';
 
-export default function SignUpPage() {
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [firstName, setFirstName] = useState('')
-  const [lastName, setLastName] = useState('')
-  const [error, setError] = useState<string | null>(null)
-  const [success, setSuccess] = useState(false)
-  const supabase = createClient()
+import { createContext, useContext, useEffect, useState } from 'react';
 
-  const handleSignUp = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError(null)
+interface User {
+  id: string;
+  name: string;
+  profileImage?: string;
+}
 
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: {
-          first_name: firstName,
-          last_name: lastName,
-        },
-      },
-    })
+interface AuthContextType {
+  user: User | null;
+  isLoading: boolean;
+  signOut: () => void;
+}
 
-    if (error) {
-      setError(error.message)
-    } else {
-      setSuccess(true)
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const [user, setUser] = useState<User | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    // Hent brukerinfo fra Replit headers
+    async function fetchUser() {
+      try {
+        const response = await fetch('/api/auth/me');
+        if (response.ok) {
+          const userData = await response.json();
+          setUser(userData);
+        }
+      } catch (error) {
+        console.error('Failed to fetch user:', error);
+      } finally {
+        setIsLoading(false);
+      }
     }
-  }
 
-  if (success) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-50">
-        <div className="bg-white rounded-xl shadow-lg p-8 max-w-md text-center">
-          <h2 className="text-xl font-bold text-green-600 mb-2">Sjekk e-posten din!</h2>
-          <p className="text-gray-600">
-            Vi har sendt deg en bekreftelseslink. Klikk på den for å aktivere kontoen.
-          </p>
-        </div>
-      </div>
-    )
-  }
+    fetchUser();
+  }, []);
+
+  const signOut = () => {
+    window.location.href = '/__replauthLogout';
+  };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-50">
-      <div className="w-full max-w-md bg-white rounded-xl shadow-lg p-8">
-        <h1 className="text-2xl font-bold text-center mb-8">Registrer deg</h1>
-
-        <form onSubmit={handleSignUp} className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium mb-1">Fornavn</label>
-              <Input
-                value={firstName}
-                onChange={(e) => setFirstName(e.target.value)}
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Etternavn</label>
-              <Input
-                value={lastName}
-                onChange={(e) => setLastName(e.target.value)}
-                required
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">E-post</label>
-            <Input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">Passord</label>
-            <Input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              minLength={8}
-              required
-            />
-          </div>
-
-          {error && <p className="text-red-600 text-sm">{error}</p>}
-
-          <Button type="submit" className="w-full">
-            Registrer deg
-          </Button>
-        </form>
-      </div>
-    </div>
-  )
+    <AuthContext.Provider value={{ user, isLoading, signOut }}>
+      {children}
+    </AuthContext.Provider>
+  );
 }
+
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error('useAuth must be used within AuthProvider');
+  }
+  return context;
+};
 ```
 
-### 3. Auth Callback
+---
+
+### 3. Auth API Route
 
 ```typescript
-// apps/nextjs/src/app/auth/callback/route.ts
-import { createClient } from '@myhrvold/db/supabase/server'
-import { NextResponse } from 'next/server'
+// apps/nextjs/src/app/api/auth/me/route.ts
+import { NextResponse, type NextRequest } from 'next/server';
 
-export async function GET(request: Request) {
-  const { searchParams, origin } = new URL(request.url)
-  const code = searchParams.get('code')
-  const next = searchParams.get('next') ?? '/'
+export async function GET(request: NextRequest) {
+  const userId = request.headers.get('X-Replit-User-Id');
+  const userName = request.headers.get('X-Replit-User-Name');
+  const userImage = request.headers.get('X-Replit-User-Profile-Image');
 
-  if (code) {
-    const supabase = await createClient()
-    const { error } = await supabase.auth.exchangeCodeForSession(code)
-    if (!error) {
-      return NextResponse.redirect(`${origin}${next}`)
-    }
+  if (!userId) {
+    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
   }
 
-  return NextResponse.redirect(`${origin}/sign-in?error=auth_failed`)
+  return NextResponse.json({
+    id: userId,
+    name: userName,
+    profileImage: userImage,
+  });
 }
 ```
 
-### 4. Logg ut-knapp
+---
+
+### 4. Root Layout
+
+```typescript
+// apps/nextjs/src/app/layout.tsx
+import { AuthProvider } from '../providers/auth-provider';
+
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <html lang="no">
+      <body>
+        <AuthProvider>
+          {children}
+        </AuthProvider>
+      </body>
+    </html>
+  );
+}
+```
+
+---
+
+### 5. Logg ut-knapp
 
 ```typescript
 // apps/nextjs/src/components/sign-out-button.tsx
-'use client'
-import { createClient } from '@myhrvold/db/supabase/client'
-import { useRouter } from 'next/navigation'
-import { Button } from '@myhrvold/ui/button'
-import { LogOut } from 'lucide-react'
+'use client';
+
+import { Button } from '@myhrvold/ui/button';
+import { LogOut } from 'lucide-react';
+import { useAuth } from '../providers/auth-provider';
 
 export function SignOutButton() {
-  const router = useRouter()
-  const supabase = createClient()
-
-  const handleSignOut = async () => {
-    await supabase.auth.signOut()
-    router.push('/sign-in')
-    router.refresh()
-  }
+  const { signOut } = useAuth();
 
   return (
-    <Button variant="ghost" onClick={handleSignOut}>
+    <Button variant="ghost" onClick={signOut}>
       <LogOut className="h-4 w-4 mr-2" />
       Logg ut
     </Button>
-  )
+  );
 }
 ```
 
@@ -417,17 +318,22 @@ export function SignOutButton() {
 
 ```typescript
 // I en Server Component
-import { createClient } from '@myhrvold/db/supabase/server'
+import { headers } from 'next/headers';
 
 export default async function DashboardPage() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const headersList = await headers();
+  const userId = headersList.get('X-Replit-User-Id');
+  const userName = headersList.get('X-Replit-User-Name');
+
+  if (!userId) {
+    redirect('/sign-in');
+  }
 
   return (
     <div>
-      <h1>Velkommen, {user?.user_metadata.first_name}!</h1>
+      <h1>Velkommen, {userName}!</h1>
     </div>
-  )
+  );
 }
 ```
 
@@ -436,26 +342,42 @@ export default async function DashboardPage() {
 ## Synkroniser med users-tabell
 
 ```typescript
-// Supabase Database Trigger (kjør i SQL Editor)
-create or replace function public.handle_new_user()
-returns trigger as $$
-begin
-  insert into public.users (id, email, first_name, last_name, role, is_active)
-  values (
-    new.id,
-    new.email,
-    new.raw_user_meta_data->>'first_name',
-    new.raw_user_meta_data->>'last_name',
-    'user',
-    true
-  );
-  return new;
-end;
-$$ language plpgsql security definer;
+// packages/api/src/routers/auth.ts
+import { router, publicProcedure } from '../trpc';
+import { db } from '@myhrvold/db';
+import { users } from '@myhrvold/db/schema';
+import { eq } from 'drizzle-orm';
 
-create trigger on_auth_user_created
-  after insert on auth.users
-  for each row execute procedure public.handle_new_user();
+export const authRouter = router({
+  syncUser: publicProcedure
+    .mutation(async ({ ctx }) => {
+      const userId = ctx.headers.get('X-Replit-User-Id');
+      const userName = ctx.headers.get('X-Replit-User-Name');
+
+      if (!userId || !userName) {
+        throw new Error('Not authenticated');
+      }
+
+      // Sjekk om bruker finnes
+      const existingUser = await db.query.users.findFirst({
+        where: eq(users.replitId, userId),
+      });
+
+      if (existingUser) {
+        return existingUser;
+      }
+
+      // Opprett ny bruker
+      const [newUser] = await db.insert(users).values({
+        replitId: userId,
+        name: userName,
+        role: 'user',
+        isActive: true,
+      }).returning();
+
+      return newUser;
+    }),
+});
 ```
 
 ---
@@ -463,19 +385,19 @@ create trigger on_auth_user_created
 ## Verifisering
 
 1. Start dev server: `pnpm dev`
-2. Gå til http://localhost:3000
+2. Gå til http://localhost:3000 (eller Replit preview)
 3. Du skal bli redirectet til /sign-in
-4. Registrer deg med e-post
-5. Sjekk e-post for bekreftelseslink
-6. Logg inn og bekreft at dashboard vises
+4. Klikk "Logg inn med Replit"
+5. Autentiser med Replit-kontoen din
+6. Bekreft at dashboard vises
 
 ---
 
 ## Leveranse
 
-- [x] Supabase Auth konfigurert
+- [x] Replit Auth konfigurert
 - [x] Beskyttede ruter via middleware
-- [x] Sign-in og sign-up sider
+- [x] Sign-in side
 - [x] Bruker-synkronisering til database
 - [x] Norsk UI
 
