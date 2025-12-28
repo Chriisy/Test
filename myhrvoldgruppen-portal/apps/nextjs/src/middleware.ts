@@ -11,18 +11,25 @@ const securityHeaders = {
 };
 
 export async function middleware(request: NextRequest) {
-  // Replit Auth headers
+  // Sjekk om vi kjører på Replit eller Vercel
+  const isReplit = !!request.headers.get("X-Replit-User-Id") ||
+                   request.headers.get("host")?.includes("replit");
+
+  // Replit Auth headers (kun tilgjengelig på Replit)
   const userId = request.headers.get("X-Replit-User-Id");
   const userName = request.headers.get("X-Replit-User-Name");
 
   // Offentlige ruter som ikke krever auth
-  const publicRoutes = ["/sign-in", "/api/auth", "/_next", "/favicon.ico"];
+  const publicRoutes = ["/", "/sign-in", "/api/auth", "/_next", "/favicon.ico"];
   const isPublicRoute = publicRoutes.some((route) =>
-    request.nextUrl.pathname.startsWith(route)
+    route === "/"
+      ? request.nextUrl.pathname === "/"
+      : request.nextUrl.pathname.startsWith(route)
   );
 
-  // Hvis ikke innlogget og ikke på offentlig rute, redirect til sign-in
-  if (!userId && !isPublicRoute) {
+  // På Vercel: hopp over Replit auth-sjekk (bruk egen auth-løsning)
+  // På Replit: krev Replit Auth for beskyttede ruter
+  if (isReplit && !userId && !isPublicRoute) {
     const url = request.nextUrl.clone();
     url.pathname = "/sign-in";
     return NextResponse.redirect(url);
@@ -36,7 +43,7 @@ export async function middleware(request: NextRequest) {
     response.headers.set(key, value);
   });
 
-  // User headers
+  // User headers (fra Replit)
   if (userId) {
     response.headers.set("x-user-id", userId);
     response.headers.set("x-user-name", userName || "");
